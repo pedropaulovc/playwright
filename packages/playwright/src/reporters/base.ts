@@ -438,9 +438,13 @@ export function formatFailure(screen: Screen, config: FullConfig, test: TestCase
         // Make this extensible
         if (attachment.name === 'trace') {
           const packageManagerCommand = getPackageManagerExecCommand();
-          resultLines.push(screen.colors.dim(`    Usage:`));
+          resultLines.push(screen.colors.dim(`    Usage (GUI):`));
           resultLines.push('');
           resultLines.push(screen.colors.dim(`        ${packageManagerCommand} playwright show-trace ${quotePathIfNeeded(relativePath)}`));
+          resultLines.push('');
+          resultLines.push(screen.colors.dim(`    Usage (Markdown and HTML, LLM-friendly):`));
+          resultLines.push('');
+          resultLines.push(screen.colors.dim(`        ${packageManagerCommand} playwright export-trace ${quotePathIfNeeded(relativePath)}`));
           resultLines.push('');
         }
       } else {

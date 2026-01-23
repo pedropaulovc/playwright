@@ -25,6 +25,7 @@ import { launchBrowserServer, printApiJson, runDriver, runServer } from './drive
 import { registry, writeDockerVersion } from '../server';
 import { gracefullyProcessExitDoNotHang, isLikelyNpxGlobal, ManualPromise } from '../utils';
 import { runTraceInBrowser, runTraceViewerApp } from '../server/trace/viewer/traceViewer';
+import { exportTraceToMarkdown } from '../server/trace/exporter/traceExporter';
 import { assert, getPackageManagerExecCommand } from '../utils';
 import { wrapInASCIIBox } from '../server/utils/ascii';
 import { dotenv, program } from '../utilsBundle';
@@ -350,6 +351,22 @@ Examples:
 
   $ show-trace
   $ show-trace https://example.com/trace.zip`);
+
+program
+    .command('export-trace <trace>')
+    .description('export trace to LLM-friendly Markdown and HTML files')
+    .option('-o, --output <dir>', 'output directory', './trace-export')
+    .action(async function(trace, options) {
+      const traceFile = path.resolve(trace);
+      await exportTraceToMarkdown(traceFile, {
+        outputDir: path.resolve(options.output),
+      }).catch(logErrorAndExit);
+      console.log(`Trace exported to ${options.output}`);
+    }).addHelpText('afterAll', `
+Examples:
+
+  $ export-trace trace.zip
+  $ export-trace trace.zip -o ./my-export`);
 
 type Options = {
   browser: string;
