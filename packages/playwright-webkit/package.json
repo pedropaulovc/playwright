@@ -30,6 +30,6 @@
     "install": "node install.js"
   },
   "dependencies": {
-    "@pedropaulovc/playwright-core": "1.59.0-next.1"
+    "@pedropaulovc/playwright-core": "1.59.0-next.4"
   }
 }
