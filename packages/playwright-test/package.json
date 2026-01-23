@@ -1,10 +1,10 @@
 {
-  "name": "@playwright/test",
+  "name": "@pedropaulovc/playwright-test",
   "version": "1.59.0-next",
   "description": "A high-level API to automate web browsers",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/microsoft/playwright.git"
+    "url": "git+https://github.com/pedropaulovc/playwright.git"
   },
   "homepage": "https://playwright.dev",
   "engines": {
@@ -30,6 +30,6 @@
   },
   "scripts": {},
   "dependencies": {
-    "playwright": "1.59.0-next"
+    "@pedropaulovc/playwright": "1.59.0-next"
   }
 }
