@@ -1,0 +1,136 @@
+name: Sync with Upstream
+
+on:
+  schedule:
+    # Run daily at 6 AM UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_publish:
+        description: 'Force publish even if no rebase occurred'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  sync-branches:
+    runs-on: ubuntu-slim
+    outputs:
+      rebased: ${{ steps.rebase-fork-main.outputs.rebased }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/microsoft/playwright.git
+          git fetch upstream main
+          git fetch origin feat/export-trace fork/main
+
+      - name: Rebase feat/export-trace
+        id: rebase-export-trace
+        run: |
+          git checkout feat/export-trace
+
+          if git merge-base --is-ancestor upstream/main feat/export-trace; then
+            echo "feat/export-trace is already up to date"
+          else
+            git rebase upstream/main
+            git push origin feat/export-trace --force-with-lease
+            echo "Rebased feat/export-trace on upstream/main"
+          fi
+        continue-on-error: true
+
+      - name: Rebase fork/main
+        id: rebase-fork-main
+        run: |
+          git fetch origin feat/export-trace
+          git checkout fork/main
+
+          if git merge-base --is-ancestor origin/feat/export-trace fork/main; then
+            echo "fork/main is already up to date"
+            echo "rebased=false" >> $GITHUB_OUTPUT
+          else
+            git rebase origin/feat/export-trace
+            git push origin fork/main --force-with-lease
+            echo "Rebased fork/main on feat/export-trace"
+            echo "rebased=true" >> $GITHUB_OUTPUT
+          fi
+        continue-on-error: true
+
+      - name: Report rebase failures
+        if: steps.rebase-export-trace.outcome == 'failure' || steps.rebase-fork-main.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Upstream sync failed - manual rebase required" \
+            --body "$(cat <<'EOF'
+          The automatic rebase from upstream/main failed due to conflicts.
+
+          Please manually rebase the following branches:
+          - feat/export-trace
+          - fork/main
+
+          Run:
+          ```bash
+          git fetch upstream main
+          git checkout feat/export-trace
+          git rebase upstream/main
+          # resolve conflicts
+          git push origin feat/export-trace --force-with-lease
+
+          git checkout fork/main
+          git rebase feat/export-trace
+          # resolve conflicts
+          git push origin fork/main --force-with-lease
+          ```
+          EOF
+          )" \
+            --assignee pedropaulovc
+
+  publish:
+    needs: sync-branches
+    if: needs.sync-branches.outputs.rebased == 'true' || inputs.force_publish
+    runs-on: ubuntu-slim
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout fork/main
+        uses: actions/checkout@v4
+        with:
+          ref: fork/main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish playwright-core
+        working-directory: packages/playwright-core
+        run: npm publish --provenance --access public --tag next
+
+      - name: Publish playwright
+        working-directory: packages/playwright
+        run: npm publish --provenance --access public --tag next
+
+      - name: Publish playwright-test
+        working-directory: packages/playwright-test
+        run: npm publish --provenance --access public --tag next
