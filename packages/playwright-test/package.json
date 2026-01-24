@@ -1,6 +1,6 @@
 {
   "name": "@pedropaulovc/playwright-test",
-  "version": "1.59.0-next.5",
+  "version": "1.59.0-next.6",
   "description": "A high-level API to automate web browsers",
   "repository": {
     "type": "git",
@@ -29,7 +29,7 @@
     "playwright": "cli.js"
   },
   "scripts": {},
-  "dependencies": {
-    "@pedropaulovc/playwright": "1.59.0-next.5"
+  "peerDependencies": {
+    "playwright": "*"
   }
 }
