@@ -26,8 +26,8 @@
     }
   },
   "dependencies": {
-    "@pedropaulovc/playwright-core": "1.59.0-next.4",
+    "@pedropaulovc/playwright-core": "1.59.0-next",
     "vite": "^6.4.1",
-    "@pedropaulovc/playwright": "1.59.0-next.4"
+    "@pedropaulovc/playwright": "1.59.0-next"
   }
 }
