@@ -5,7 +5,7 @@
   "description": "A thin client for Playwright",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/microsoft/playwright.git"
+    "url": "git+https://github.com/pedropaulovc/playwright.git"
   },
   "homepage": "https://playwright.dev",
   "engines": {
