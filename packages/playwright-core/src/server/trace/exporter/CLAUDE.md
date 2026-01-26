@@ -86,8 +86,67 @@ cd ./trace-export && npx serve
 # Open http://localhost:3000/assets/snapshots/after@call@123.html
 ```
 
+## Testing
+
+Tests are in `tests/library/trace-exporter.spec.ts`. Run with:
+
+```bash
+npx playwright test tests/library/trace-exporter.spec.ts
+```
+
+### Test Trace Files
+
+Test traces are in `tests/assets/`:
+- `test-trace1.zip` - Basic trace with actions
+- `test-trace-scroll.zip` - Trace with scroll positions, input values, checkbox states
+- `test-trace-shadow.zip` - Trace with shadow DOM and custom elements
+- `test-trace-error.zip` - Trace with errors
+- `test-trace-console.zip` - Trace with console messages
+- `test-trace-action.zip` - Trace with click actions and input snapshots
+- `test-trace-screenshots.zip` - Trace with screencast frames
+- `test-trace-attachments.zip` - Trace with file attachments
+- `test-trace-css-js.zip` - Trace with CSS styling and JS effects
+- `test-trace-empty.zip` - Empty trace
+
+### Generating New Test Traces
+
+To generate a new test trace (e.g., for scroll positions):
+
+```js
+import { chromium } from 'playwright';
+import http from 'http';
+
+// Start HTTP server with test HTML
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/html' });
+  res.end('<html>...</html>');
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+
+// Record trace
+const browser = await chromium.launch();
+const context = await browser.newContext();
+await context.tracing.start({ screenshots: true, snapshots: true });
+
+const page = await context.newPage();
+await page.goto(`http://127.0.0.1:${server.address().port}`);
+// ... perform actions ...
+
+await context.tracing.stop({ path: 'tests/assets/test-trace-xxx.zip' });
+await browser.close();
+server.close();
+```
+
+### Runtime Verification
+
+The scroll position test verifies that exported snapshots work correctly at runtime:
+1. Exports the trace
+2. Loads snapshot HTML in browser via `page.setContent()`
+3. Verifies `scrollTop`, input values, checkbox states are restored by the injected script
+
 ## Key Files
 
 - `traceExporter.ts` - Main implementation
 - `../../utils/zipFile.ts` - ZIP reading
 - `../../../utils/isomorphic/stringUtils.ts` - HTML escaping
+- `../../../../../tests/library/trace-exporter.spec.ts` - Tests
