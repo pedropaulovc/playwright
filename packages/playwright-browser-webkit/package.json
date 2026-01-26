@@ -1,6 +1,6 @@
 {
   "name": "@playwright/browser-webkit",
-  "version": "1.59.0-next.6",
+  "version": "1.59.0-next.7",
   "description": "Playwright package that automatically installs WebKit",
   "repository": {
     "type": "git",
@@ -27,6 +27,6 @@
     "install": "node install.js"
   },
   "dependencies": {
-    "@pedropaulovc/playwright-core": "1.59.0-next.6"
+    "@pedropaulovc/playwright-core": "1.59.0-next.7"
   }
 }
