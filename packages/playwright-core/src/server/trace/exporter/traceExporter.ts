@@ -746,11 +746,28 @@ function generateTimelineMarkdown(actions: TraceAction[], assetMap: Map<string, 
   const startTime = filteredActions[0]?.startTime || 0;
   const totalDuration = filteredActions.length > 0 ? (filteredActions[filteredActions.length - 1].endTime || filteredActions[filteredActions.length - 1].startTime) - startTime : 0;
 
+  // Build tree structure
+  const rootItem = buildActionTree(filteredActions);
+
+  // Generate table of contents for top-level items
+  const tocEntries: string[] = [];
+  for (let i = 0; i < rootItem.children.length; i++) {
+    const item = rootItem.children[i];
+    const number = `${i + 1}`;
+    const title = getActionTitle(item.action);
+    const hasError = !!item.action.error;
+    const headingText = `${number}. ${title}${hasError ? ' - ERROR' : ''}`;
+    const anchor = headingText.toLowerCase().replace(/[^\w\s-]/g, '').replace(/ /g, '-');
+    tocEntries.push(`- [${headingText}](#${anchor})`);
+  }
+
   let md = `# Actions Timeline\n\n`;
   md += `Total actions: ${filteredActions.length} | Duration: ${Math.round(totalDuration)}ms\n\n`;
 
-  // Build tree structure
-  const rootItem = buildActionTree(filteredActions);
+  if (tocEntries.length > 0) {
+    md += `## Contents\n\n`;
+    md += tocEntries.join('\n') + '\n\n';
+  }
 
   // Render tree with hierarchical numbering
   const renderItem = (item: ActionTreeItem, prefix: string, index: number, depth: number) => {

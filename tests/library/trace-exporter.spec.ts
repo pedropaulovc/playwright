@@ -184,10 +184,79 @@ test.describe('trace exporter', () => {
 
     const timeline = fs.readFileSync(path.join(outputDir, 'timeline.md'), 'utf-8');
     expect(timeline).toContain('# Actions Timeline');
+    expect(timeline).toContain('- [1. Test.step](#1-teststep)');
     expect(timeline).toContain('Total actions: 12');
     expect(timeline).toContain('Duration:');
     expect(timeline).toContain('playwright.dev');
     expect(timeline).toContain('Test.step');
+  });
+
+  test('should generate timeline.md with table of contents', async ({}, testInfo) => {
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace1.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    const timeline = fs.readFileSync(path.join(outputDir, 'timeline.md'), 'utf-8');
+
+    // Verify table of contents section exists
+    expect(timeline).toContain('## Contents');
+
+    // Verify TOC entries are markdown links to anchors
+    const tocMatch = timeline.match(/## Contents\n\n([\s\S]*?)\n\n##/);
+    expect(tocMatch).toBeTruthy();
+    const tocSection = tocMatch![1];
+
+    // Each TOC entry should be a markdown link
+    const tocLines = tocSection.split('\n').filter(line => line.startsWith('- ['));
+    expect(tocLines.length).toBeGreaterThan(0);
+
+    // Verify TOC links have correct format: - [N. Title](#n-title)
+    for (const line of tocLines) {
+      expect(line).toMatch(/^- \[\d+\. .+\]\(#[\w-]+\)$/);
+    }
+
+    // Verify TOC entries correspond to actual headings in the document
+    for (const line of tocLines) {
+      const titleMatch = line.match(/\[([^\]]+)\]/);
+      expect(titleMatch).toBeTruthy();
+      const title = titleMatch![1];
+      // The heading should exist in the document (as h2)
+      expect(timeline).toContain(`## ${title}`);
+    }
+  });
+
+  test('should generate TOC anchors following GitHub slugification rules', async () => {
+    // Test the anchor generation logic directly with known inputs/outputs
+    // GitHub slugification: lowercase, remove punctuation, spaces become hyphens (not collapsed)
+    const testCases: Array<{ heading: string; expectedAnchor: string }> = [
+      {
+        heading: '1. Before Hooks',
+        expectedAnchor: '1-before-hooks',
+      },
+      {
+        // Quotes and slashes are removed
+        heading: '2. Navigate to "/test/repo/460"',
+        expectedAnchor: '2-navigate-to-testrepo460',
+      },
+      {
+        // Parentheses, quotes, braces removed; ", { " becomes "--" (two spaces preserved)
+        heading: `27. Press "Enter" getByRole('dialog', { name: 'Find in diff' }).getByRole('textbox', { name: 'Search term' })`,
+        expectedAnchor: '27-press-enter-getbyroledialog--name-find-in-diff-getbyroletextbox--name-search-term-',
+      },
+      {
+        // Dots and parentheses in method chains
+        heading: `28. Evaluate getByRole('region', { name: 'Original version' }).locator('.cm-editor').first()`,
+        expectedAnchor: '28-evaluate-getbyroleregion--name-original-version-locatorcm-editorfirst',
+      },
+    ];
+
+    // Replicate the anchor generation logic from traceExporter.ts
+    const generateAnchor = (text: string) =>
+      text.toLowerCase().replace(/[^\w\s-]/g, '').replace(/ /g, '-');
+
+    for (const { heading, expectedAnchor } of testCases)
+      expect(generateAnchor(heading)).toBe(expectedAnchor);
   });
 
   test('should generate network.md with requests', async ({}, testInfo) => {
