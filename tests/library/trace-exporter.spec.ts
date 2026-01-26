@@ -138,6 +138,25 @@ test.describe('trace exporter', () => {
     expect(index).toContain('[Network](./network.md)');
   });
 
+  test('should include viewport size in index.md and snapshot comments', async ({}, testInfo) => {
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace1.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    // Verify viewport is in index.md overview
+    const index = fs.readFileSync(path.join(outputDir, 'index.md'), 'utf-8');
+    expect(index).toContain('**Viewport:** 1280x720');
+
+    // Verify viewport is in snapshot HTML comments
+    const snapshotsDir = path.join(outputDir, 'assets', 'snapshots');
+    const snapshots = fs.readdirSync(snapshotsDir);
+    expect(snapshots.length).toBeGreaterThan(0);
+
+    const snapshotContent = fs.readFileSync(path.join(snapshotsDir, snapshots[0]), 'utf-8');
+    expect(snapshotContent).toContain('Viewport: 1280x720');
+  });
+
   test('should generate metadata.md with browser info', async ({}, testInfo) => {
     const traceFile = path.join(__dirname, '..', 'assets', 'test-trace1.zip');
     const outputDir = testInfo.outputPath('trace-export');

@@ -586,10 +586,13 @@ function generateIndexMarkdown(context: TraceContext, traceFile: string): string
 
   const errorSummary = collectErrorSummary(context);
 
+  const viewport = context.options.viewport;
+  const viewportStr = viewport ? `${viewport.width}x${viewport.height}` : 'Unknown';
+
   let md = `# Trace Export: ${title}\n\n`;
   md += `**Test:** \`${title}\`\n`;
   md += `**Source:** \`${traceFile}\`\n\n`;
-  md += `**Status:** ${hasErrors ? 'FAILED' : 'PASSED'} | **Duration:** ${duration}ms | **Actions:** ${actionCount} | **Errors:** ${errorCount}\n\n`;
+  md += `**Status:** ${hasErrors ? 'FAILED' : 'PASSED'} | **Duration:** ${duration}ms | **Viewport:** ${viewportStr} | **Actions:** ${actionCount} | **Errors:** ${errorCount}\n\n`;
 
   if (errorSummary.length > 0) {
     md += `## Error Summary\n`;
@@ -1295,7 +1298,8 @@ class ExportSnapshotRenderer {
     visit(snapshot.html, this._index, undefined);
 
     const doctype = snapshot.doctype ? `<!DOCTYPE ${snapshot.doctype}>` : '<!DOCTYPE html>';
-    const comment = `<!-- Playwright Snapshot: ${snapshot.snapshotName} | URL: ${snapshot.frameUrl} | Timestamp: ${snapshot.timestamp} -->`;
+    const viewportInfo = snapshot.viewport ? ` | Viewport: ${snapshot.viewport.width}x${snapshot.viewport.height}` : '';
+    const comment = `<!-- Playwright Snapshot: ${snapshot.snapshotName} | URL: ${snapshot.frameUrl} | Timestamp: ${snapshot.timestamp}${viewportInfo} -->`;
 
     // Inject state restoration script at the end of the document
     const restorationScript = generateRestorationScript();
