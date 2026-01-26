@@ -646,4 +646,89 @@ test.describe('trace exporter', () => {
 
     await context.close();
   });
+
+  test('should render click target highlighting in input snapshots', async ({ browser }, testInfo) => {
+    // test-trace-action.zip has a click action with input snapshot and point data
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace-action.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    const snapshotsDir = path.join(outputDir, 'assets', 'snapshots');
+    const snapshots = fs.readdirSync(snapshotsDir);
+
+    // Find the input snapshot (contains click target highlighting)
+    const inputSnapshot = snapshots.find(s => s.startsWith('input@'));
+    expect(inputSnapshot).toBeTruthy();
+
+    const snapshotContent = fs.readFileSync(path.join(snapshotsDir, inputSnapshot!), 'utf-8');
+
+    // Verify __playwright_target__ attribute is preserved
+    expect(snapshotContent).toContain('__playwright_target__');
+
+    // Verify highlight config is embedded in the script with point data
+    expect(snapshotContent).toContain('highlightConfig');
+    expect(snapshotContent).toContain('pointX');
+    expect(snapshotContent).toContain('pointY');
+
+    // Load the snapshot in a browser and verify highlighting is applied at runtime
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent(snapshotContent);
+
+    // Verify blue outline is applied to target element
+    const targetStyle = await page.evaluate(() => {
+      const target = document.querySelector('[__playwright_target__]');
+      if (!target) return null;
+      return {
+        outline: (target as HTMLElement).style.outline,
+        backgroundColor: (target as HTMLElement).style.backgroundColor,
+      };
+    });
+    expect(targetStyle).toBeTruthy();
+    // Style.outline returns in browser's preferred format, check for key components
+    expect(targetStyle!.outline).toMatch(/2px.*solid|solid.*2px/);
+    expect(targetStyle!.outline).toMatch(/#006ab1|rgb\(0,\s*106,\s*177\)/);
+    // Background color is rgba(111, 168, 220, 0.498) which is #6fa8dc7f
+    expect(targetStyle!.backgroundColor).toMatch(/rgba\(111,\s*168,\s*220,\s*0\.49/);  // Allow minor precision differences
+
+    // Verify red pointer circle is rendered
+    const pointerElement = await page.evaluate(() => {
+      const pointer = document.querySelector('x-pw-pointer');
+      if (!pointer) return null;
+      const style = (pointer as HTMLElement).style;
+      return {
+        backgroundColor: style.backgroundColor,
+        width: style.width,
+        height: style.height,
+        borderRadius: style.borderRadius,
+        position: style.position,
+      };
+    });
+    expect(pointerElement).toBeTruthy();
+    expect(pointerElement!.backgroundColor).toContain('244'); // rgb(244, 67, 54) is #f44336
+    expect(pointerElement!.width).toBe('20px');
+    expect(pointerElement!.height).toBe('20px');
+    expect(pointerElement!.borderRadius).toBe('10px');
+    expect(pointerElement!.position).toBe('fixed');
+
+    await context.close();
+  });
+
+  test('should not render highlighting for non-input snapshots', async ({}, testInfo) => {
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace-action.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    const snapshotsDir = path.join(outputDir, 'assets', 'snapshots');
+    const snapshots = fs.readdirSync(snapshotsDir);
+
+    // Find a before or after snapshot (not input)
+    const beforeSnapshot = snapshots.find(s => s.startsWith('before@'));
+    expect(beforeSnapshot).toBeTruthy();
+
+    const snapshotContent = fs.readFileSync(path.join(snapshotsDir, beforeSnapshot!), 'utf-8');
+
+    // Verify highlightConfig is null for non-input snapshots
+    expect(snapshotContent).toContain('highlightConfig = null');
+  });
 });

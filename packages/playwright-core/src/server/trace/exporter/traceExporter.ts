@@ -76,6 +76,8 @@ interface TraceAction {
   stack?: Array<{ file: string; line: number; column: number; function?: string }>;
   beforeSnapshot?: string;
   afterSnapshot?: string;
+  inputSnapshot?: string;  // Snapshot with target highlight for click actions
+  point?: { x: number; y: number };  // Click coordinates
   pageId?: string;
   parentId?: string;
   title?: string;
@@ -284,6 +286,14 @@ function processTraceEvent(
       }
       break;
 
+    case 'input':
+      const inputAction = actionMap.get(event.callId);
+      if (inputAction) {
+        inputAction.inputSnapshot = event.inputSnapshot;
+        inputAction.point = event.point;
+      }
+      break;
+
     case 'log':
       const logAction = actionMap.get(event.callId);
       if (logAction) {
@@ -388,6 +398,17 @@ async function extractAssets(
     frameSnapshots.push(snapshot);
   }
 
+  // Build map of snapshot names to highlight info (for click target highlighting)
+  const snapshotHighlightInfo = new Map<string, { callId: string; point?: { x: number; y: number } }>();
+  for (const action of context.actions) {
+    if (action.inputSnapshot && action.point) {
+      snapshotHighlightInfo.set(action.inputSnapshot, {
+        callId: action.callId,
+        point: action.point,
+      });
+    }
+  }
+
   // Collect all SHA1s we need to extract
   const neededSha1s = new Set<string>();
 
@@ -485,7 +506,8 @@ async function extractAssets(
     try {
       const frameSnapshots = snapshotsByFrame.get(snapshot.frameId) || [];
       const snapshotIndex = frameSnapshots.indexOf(snapshot);
-      const renderer = new ExportSnapshotRenderer(frameSnapshots, snapshotIndex, context.networkResourceMap);
+      const highlightInfo = snapshotHighlightInfo.get(snapshot.snapshotName);
+      const renderer = new ExportSnapshotRenderer(frameSnapshots, snapshotIndex, context.networkResourceMap, highlightInfo);
       const html = renderer.render();
 
       // Extract any additional SHA1s discovered during rendering
@@ -1195,7 +1217,6 @@ const autoClosing = new Set(['AREA', 'BASE', 'BR', 'COL', 'COMMAND', 'EMBED', 'H
 // These are captured in snapshotterInjected.ts and restored in snapshotRenderer.ts.
 // See tests/library/trace-exporter.spec.ts for a test that validates these stay in sync.
 // Excluded attributes (trace viewer internals, not needed for exports):
-//   - __playwright_target__: click target highlighting (UI feature)
 //   - __playwright_bounding_rect__: canvas rendering calculations
 //   - __playwright_current_src__: video/audio src tracking
 export const kPreservedPlaywrightAttributes = new Set([
@@ -1210,6 +1231,7 @@ export const kPreservedPlaywrightAttributes = new Set([
   '__playwright_shadow_root_',      // shadow DOM template marker
   '__playwright_custom_elements__', // custom element definitions (on body)
   '__playwright_style_sheet_',      // adopted stylesheets (on template)
+  '__playwright_target__',          // click target highlighting
 ]);
 
 function isNodeNameAttributesChildNodesSnapshot(n: NodeSnapshot): n is NodeNameAttributesChildNodesSnapshot {
@@ -1237,6 +1259,11 @@ function buildNodeIndex(snapshot: TraceFrameSnapshot): NodeSnapshot[] {
   return nodes;
 }
 
+interface SnapshotHighlightInfo {
+  callId: string;
+  point?: { x: number; y: number };
+}
+
 class ExportSnapshotRenderer {
   private _snapshots: TraceFrameSnapshot[];
   private _index: number;
@@ -1246,13 +1273,15 @@ class ExportSnapshotRenderer {
   private _overrideMap: Map<string, string>; // URL -> SHA1
   private _networkResourceMap: Map<string, string>; // URL -> SHA1 from network log
   private _usedSha1s = new Set<string>();
+  private _highlightInfo?: SnapshotHighlightInfo;
 
-  constructor(snapshots: TraceFrameSnapshot[], index: number, networkResourceMap: Map<string, string>) {
+  constructor(snapshots: TraceFrameSnapshot[], index: number, networkResourceMap: Map<string, string>, highlightInfo?: SnapshotHighlightInfo) {
     this._snapshots = snapshots;
     this._index = index;
     this._snapshot = snapshots[index];
     this._baseUrl = snapshots[index].frameUrl;
     this._networkResourceMap = networkResourceMap;
+    this._highlightInfo = highlightInfo;
 
     // Build override map from current snapshot and all referenced snapshots
     this._overrideMap = this._buildOverrideMap();
@@ -1436,7 +1465,7 @@ class ExportSnapshotRenderer {
     const comment = `<!-- Playwright Snapshot: ${snapshot.snapshotName} | URL: ${snapshot.frameUrl} | Timestamp: ${snapshot.timestamp}${viewportInfo} -->`;
 
     // Inject state restoration script at the end of the document
-    const restorationScript = generateRestorationScript();
+    const restorationScript = generateRestorationScript(this._highlightInfo);
 
     return doctype + '\n' + comment + '\n' + result.join('') + restorationScript;
   }
@@ -1455,10 +1484,20 @@ class ExportSnapshotRenderer {
 
 // State restoration script for exported snapshots
 // This mirrors the behavior of the trace viewer's snapshotRenderer.ts
-function generateRestorationScript(): string {
+function generateRestorationScript(highlightInfo?: SnapshotHighlightInfo): string {
+  // Generate highlight config as JSON if present
+  const highlightConfig = highlightInfo ? JSON.stringify({
+    callId: highlightInfo.callId,
+    pointX: highlightInfo.point?.x,
+    pointY: highlightInfo.point?.y,
+  }) : 'null';
+
   return `
 <script>
 (function() {
+  const highlightConfig = ${highlightConfig};
+  const targetElements = [];
+
   const visit = (root) => {
     // Restore input values
     for (const element of root.querySelectorAll('[__playwright_value_]')) {
@@ -1490,6 +1529,14 @@ function generateRestorationScript(): string {
           element.show();
       } catch {}
       element.removeAttribute('__playwright_dialog_open_');
+    }
+    // Apply click target highlighting (blue outline)
+    if (highlightConfig) {
+      for (const target of root.querySelectorAll('[__playwright_target__="' + highlightConfig.callId + '"]')) {
+        target.style.outline = '2px solid #006ab1';
+        target.style.backgroundColor = '#6fa8dc7f';
+        targetElements.push(target);
+      }
     }
     // Handle shadow roots
     for (const element of root.querySelectorAll('template[__playwright_shadow_root_]')) {
@@ -1531,6 +1578,50 @@ function generateRestorationScript(): string {
     for (const element of document.querySelectorAll('[__playwright_scroll_left_]')) {
       element.scrollLeft = +element.getAttribute('__playwright_scroll_left_');
       element.removeAttribute('__playwright_scroll_left_');
+    }
+
+    // Add click pointer (red circle) for input snapshots
+    if (highlightConfig && highlightConfig.pointX !== undefined && highlightConfig.pointY !== undefined) {
+      const hasTargetElements = targetElements.length > 0;
+      const roots = document.documentElement ? [document.documentElement] : [];
+      for (const target of (hasTargetElements ? targetElements : roots)) {
+        const pointElement = document.createElement('x-pw-pointer');
+        pointElement.style.position = 'fixed';
+        pointElement.style.backgroundColor = '#f44336';
+        pointElement.style.width = '20px';
+        pointElement.style.height = '20px';
+        pointElement.style.borderRadius = '10px';
+        pointElement.style.margin = '-10px 0 0 -10px';
+        pointElement.style.zIndex = '2147483646';
+        pointElement.style.display = 'flex';
+        pointElement.style.alignItems = 'center';
+        pointElement.style.justifyContent = 'center';
+        if (hasTargetElements) {
+          // Show circle at center of target element
+          const box = target.getBoundingClientRect();
+          const centerX = (box.left + box.width / 2);
+          const centerY = (box.top + box.height / 2);
+          pointElement.style.left = centerX + 'px';
+          pointElement.style.top = centerY + 'px';
+          // Add warning if point differs significantly from recorded location
+          if (Math.abs(centerX - highlightConfig.pointX) >= 10 || Math.abs(centerY - highlightConfig.pointY) >= 10) {
+            const warningElement = document.createElement('x-pw-pointer-warning');
+            warningElement.textContent = '⚠';
+            warningElement.style.fontSize = '19px';
+            warningElement.style.color = 'white';
+            warningElement.style.marginTop = '-3.5px';
+            warningElement.style.userSelect = 'none';
+            pointElement.appendChild(warningElement);
+            pointElement.setAttribute('title', 'Recorded click position in absolute coordinates did not match the center of the clicked element. This is likely due to a difference between the test runner and the trace viewer operating systems.');
+          }
+          document.documentElement.appendChild(pointElement);
+        } else {
+          // For actions without a target element, show at recorded location
+          pointElement.style.left = highlightConfig.pointX + 'px';
+          pointElement.style.top = highlightConfig.pointY + 'px';
+          document.documentElement.appendChild(pointElement);
+        }
+      }
     }
   };
 
