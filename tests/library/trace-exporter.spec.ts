@@ -17,9 +17,73 @@
 import fs from 'fs';
 import path from 'path';
 import { expect, playwrightTest } from '../config/browserTest';
-import { exportTraceToMarkdown } from '../../packages/playwright-core/lib/server/trace/exporter/traceExporter';
+import { exportTraceToMarkdown, kPreservedPlaywrightAttributes } from '../../packages/playwright-core/lib/server/trace/exporter/traceExporter';
 
 const test = playwrightTest;
+
+// Attributes that are intentionally excluded from export (trace viewer internals)
+const kExcludedAttributes = new Set([
+  '__playwright_target__',              // click target highlighting (UI feature)
+  '__playwright_bounding_rect__',       // canvas rendering calculations
+  '__playwright_current_src__',         // video/audio src tracking
+  '__playwright_frame_bounding_rects__', // window property for frame calculations (not an HTML attribute)
+  '__playwright_canvas_render_info__',  // canvas rendering info (not an HTML attribute)
+]);
+
+test.describe('trace exporter attribute sync', () => {
+  test('kPreservedPlaywrightAttributes should match attributes restored in snapshotRenderer.ts', async () => {
+    // Parse snapshotRenderer.ts to find all __playwright_*_ attributes that are restored
+    const rendererPath = path.join(__dirname, '../../packages/playwright-core/src/utils/isomorphic/trace/snapshotRenderer.ts');
+    const rendererSource = fs.readFileSync(rendererPath, 'utf-8');
+
+    // Find all attribute names used in querySelectorAll or getAttribute calls
+    const attrPattern = /__playwright_[a-z_]+_/g;
+    const rendererAttrs = new Set<string>();
+    for (const match of rendererSource.matchAll(attrPattern))
+      rendererAttrs.add(match[0]);
+
+    // Parse snapshotterInjected.ts to find all __playwright_*_ attribute constants
+    const injectedPath = path.join(__dirname, '../../packages/playwright-core/src/server/trace/recorder/snapshotterInjected.ts');
+    const injectedSource = fs.readFileSync(injectedPath, 'utf-8');
+
+    const injectedAttrs = new Set<string>();
+    for (const match of injectedSource.matchAll(attrPattern))
+      injectedAttrs.add(match[0]);
+
+    // All attributes in renderer should either be in preserved set or excluded set
+    for (const attr of rendererAttrs) {
+      if (!kPreservedPlaywrightAttributes.has(attr) && !kExcludedAttributes.has(attr)) {
+        throw new Error(
+          `Attribute "${attr}" is used in snapshotRenderer.ts but missing from kPreservedPlaywrightAttributes in traceExporter.ts. ` +
+          `Either add it to kPreservedPlaywrightAttributes or to kExcludedAttributes in the test if it's intentionally excluded.`
+        );
+      }
+    }
+
+    // All preserved attributes should be in injected (where they're captured)
+    for (const attr of kPreservedPlaywrightAttributes) {
+      // __playwright_src__ is a special case - it's set in the renderer, not injected
+      if (attr === '__playwright_src__')
+        continue;
+      if (!injectedAttrs.has(attr)) {
+        throw new Error(
+          `Attribute "${attr}" is in kPreservedPlaywrightAttributes but not found in snapshotterInjected.ts. ` +
+          `The attribute may have been renamed or removed.`
+        );
+      }
+    }
+
+    // All preserved attributes should be restored in renderer
+    for (const attr of kPreservedPlaywrightAttributes) {
+      if (!rendererAttrs.has(attr)) {
+        throw new Error(
+          `Attribute "${attr}" is in kPreservedPlaywrightAttributes but not found in snapshotRenderer.ts. ` +
+          `The attribute may have been renamed or removed.`
+        );
+      }
+    }
+  });
+});
 
 test.describe('trace exporter', () => {
   test('should export trace to markdown files', async ({}, testInfo) => {
@@ -343,5 +407,117 @@ test.describe('trace exporter', () => {
     const timeline = fs.readFileSync(path.join(outputDir, 'timeline.md'), 'utf-8');
     expect(timeline).toContain('# Actions Timeline');
     expect(timeline).toContain('No actions recorded.');
+  });
+
+  test('should preserve scroll positions and element state in exported snapshots', async ({ browser }, testInfo) => {
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace-scroll.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    // Verify snapshots exist
+    const snapshotsDir = path.join(outputDir, 'assets', 'snapshots');
+    const snapshots = fs.readdirSync(snapshotsDir);
+    expect(snapshots.length).toBeGreaterThan(0);
+
+    // Find a snapshot that contains the scroll position
+    let snapshotContent: string | null = null;
+    for (const snapshot of snapshots) {
+      const content = fs.readFileSync(path.join(snapshotsDir, snapshot), 'utf-8');
+      if (content.includes('__playwright_scroll_top_="500"')) {
+        snapshotContent = content;
+        break;
+      }
+    }
+    expect(snapshotContent).toBeTruthy();
+
+    // Load the snapshot in a browser and verify state is restored at runtime
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent(snapshotContent!);
+
+    // Verify scroll position is restored at runtime
+    const scrollTop = await page.evaluate(() => {
+      const container = document.getElementById('scrollContainer');
+      return container?.scrollTop ?? 0;
+    });
+    expect(scrollTop).toBe(500);
+
+    // Verify input value is restored at runtime
+    const inputValue = await page.evaluate(() => {
+      const input = document.getElementById('textInput') as HTMLInputElement;
+      return input?.value ?? '';
+    });
+    expect(inputValue).toBe('Hello World');
+
+    // Verify checkbox state is restored at runtime
+    const isChecked = await page.evaluate(() => {
+      const checkbox = document.getElementById('checkbox') as HTMLInputElement;
+      return checkbox?.checked ?? false;
+    });
+    expect(isChecked).toBe(true);
+
+    // Verify the playwright attributes are removed after restoration
+    const hasScrollAttr = await page.evaluate(() => {
+      return document.querySelector('[__playwright_scroll_top_]') !== null;
+    });
+    expect(hasScrollAttr).toBe(false);
+
+    await context.close();
+  });
+
+  test('should preserve shadow DOM and custom elements in exported snapshots', async ({ browser }, testInfo) => {
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace-shadow.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    // Verify snapshots exist
+    const snapshotsDir = path.join(outputDir, 'assets', 'snapshots');
+    const snapshots = fs.readdirSync(snapshotsDir);
+    expect(snapshots.length).toBeGreaterThan(0);
+
+    // Find a snapshot with shadow DOM
+    let snapshotContent: string | null = null;
+    for (const snapshot of snapshots) {
+      const content = fs.readFileSync(path.join(snapshotsDir, snapshot), 'utf-8');
+      if (content.includes('__playwright_shadow_root_')) {
+        snapshotContent = content;
+        break;
+      }
+    }
+    expect(snapshotContent).toBeTruthy();
+
+    // Verify shadow DOM template is preserved
+    expect(snapshotContent).toContain('__playwright_shadow_root_');
+
+    // Verify custom elements attribute is preserved
+    expect(snapshotContent).toContain('__playwright_custom_elements__');
+
+    // Load the snapshot in a browser and verify shadow DOM is restored
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent(snapshotContent!);
+
+    // Verify shadow DOM is attached
+    const hasShadowRoot = await page.evaluate(() => {
+      const host = document.getElementById('shadowHost');
+      return host?.shadowRoot !== null;
+    });
+    expect(hasShadowRoot).toBe(true);
+
+    // Verify shadow DOM content is accessible
+    const shadowContent = await page.evaluate(() => {
+      const host = document.getElementById('shadowHost');
+      const shadowEl = host?.shadowRoot?.querySelector('.shadow-content');
+      return shadowEl?.textContent ?? '';
+    });
+    expect(shadowContent).toContain('Content inside shadow DOM');
+
+    // Verify custom element is registered
+    const customElementDefined = await page.evaluate(() => {
+      return window.customElements.get('my-custom-element') !== undefined;
+    });
+    expect(customElementDefined).toBe(true);
+
+    await context.close();
   });
 });

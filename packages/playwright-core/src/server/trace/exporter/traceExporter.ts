@@ -1054,6 +1054,27 @@ function generateAttachmentsMarkdown(actions: TraceAction[], assetMap: Map<strin
 
 const autoClosing = new Set(['AREA', 'BASE', 'BR', 'COL', 'COMMAND', 'EMBED', 'HR', 'IMG', 'INPUT', 'KEYGEN', 'LINK', 'MENUITEM', 'META', 'PARAM', 'SOURCE', 'TRACK', 'WBR']);
 
+// Playwright attributes that preserve element state and should be kept in exported snapshots.
+// These are captured in snapshotterInjected.ts and restored in snapshotRenderer.ts.
+// See tests/library/trace-exporter.spec.ts for a test that validates these stay in sync.
+// Excluded attributes (trace viewer internals, not needed for exports):
+//   - __playwright_target__: click target highlighting (UI feature)
+//   - __playwright_bounding_rect__: canvas rendering calculations
+//   - __playwright_current_src__: video/audio src tracking
+export const kPreservedPlaywrightAttributes = new Set([
+  '__playwright_src__',             // iframe src
+  '__playwright_scroll_top_',       // scroll position
+  '__playwright_scroll_left_',      // scroll position
+  '__playwright_value_',            // input/textarea value
+  '__playwright_checked_',          // checkbox/radio checked state
+  '__playwright_selected_',         // option selected state
+  '__playwright_popover_open_',     // popover open state
+  '__playwright_dialog_open_',      // dialog open state
+  '__playwright_shadow_root_',      // shadow DOM template marker
+  '__playwright_custom_elements__', // custom element definitions (on body)
+  '__playwright_style_sheet_',      // adopted stylesheets (on template)
+]);
+
 function isNodeNameAttributesChildNodesSnapshot(n: NodeSnapshot): n is NodeNameAttributesChildNodesSnapshot {
   return Array.isArray(n) && typeof n[0] === 'string';
 }
@@ -1228,8 +1249,8 @@ class ExportSnapshotRenderer {
         const isImg = nodeName === 'IMG';
 
         for (const [attr, value] of attrs) {
-          // Skip internal playwright attributes (but keep __playwright_src__ for iframes)
-          if (attr.startsWith('__playwright') && attr !== '__playwright_src__')
+          // Skip internal playwright attributes, but keep state-preserving ones
+          if (attr.startsWith('__playwright') && !kPreservedPlaywrightAttributes.has(attr))
             continue;
 
           let attrName = attr;
@@ -1276,7 +1297,10 @@ class ExportSnapshotRenderer {
     const doctype = snapshot.doctype ? `<!DOCTYPE ${snapshot.doctype}>` : '<!DOCTYPE html>';
     const comment = `<!-- Playwright Snapshot: ${snapshot.snapshotName} | URL: ${snapshot.frameUrl} | Timestamp: ${snapshot.timestamp} -->`;
 
-    return doctype + '\n' + comment + '\n' + result.join('');
+    // Inject state restoration script at the end of the document
+    const restorationScript = generateRestorationScript();
+
+    return doctype + '\n' + comment + '\n' + result.join('') + restorationScript;
   }
 
   // Rewrite srcset attribute (format: "url1 1x, url2 2x, ...")
@@ -1289,6 +1313,93 @@ class ExportSnapshotRenderer {
       return parts.join(' ');
     }).join(', ');
   }
+}
+
+// State restoration script for exported snapshots
+// This mirrors the behavior of the trace viewer's snapshotRenderer.ts
+function generateRestorationScript(): string {
+  return `
+<script>
+(function() {
+  const visit = (root) => {
+    // Restore input values
+    for (const element of root.querySelectorAll('[__playwright_value_]')) {
+      if (element.type !== 'file')
+        element.value = element.getAttribute('__playwright_value_');
+      element.removeAttribute('__playwright_value_');
+    }
+    // Restore checkbox/radio checked state
+    for (const element of root.querySelectorAll('[__playwright_checked_]')) {
+      element.checked = element.getAttribute('__playwright_checked_') === 'true';
+      element.removeAttribute('__playwright_checked_');
+    }
+    // Restore option selected state
+    for (const element of root.querySelectorAll('[__playwright_selected_]')) {
+      element.selected = element.getAttribute('__playwright_selected_') === 'true';
+      element.removeAttribute('__playwright_selected_');
+    }
+    // Restore popover open state
+    for (const element of root.querySelectorAll('[__playwright_popover_open_]')) {
+      try { element.showPopover(); } catch {}
+      element.removeAttribute('__playwright_popover_open_');
+    }
+    // Restore dialog open state
+    for (const element of root.querySelectorAll('[__playwright_dialog_open_]')) {
+      try {
+        if (element.getAttribute('__playwright_dialog_open_') === 'modal')
+          element.showModal();
+        else
+          element.show();
+      } catch {}
+      element.removeAttribute('__playwright_dialog_open_');
+    }
+    // Handle shadow roots
+    for (const element of root.querySelectorAll('template[__playwright_shadow_root_]')) {
+      const shadowRoot = element.parentElement.attachShadow({ mode: 'open' });
+      shadowRoot.appendChild(element.content);
+      element.remove();
+      visit(shadowRoot);
+    }
+    // Register custom elements
+    const body = root.querySelector('body[__playwright_custom_elements__]');
+    if (body && window.customElements) {
+      const customElements = (body.getAttribute('__playwright_custom_elements__') || '').split(',');
+      for (const elementName of customElements) {
+        if (elementName && !window.customElements.get(elementName))
+          window.customElements.define(elementName, class extends HTMLElement {});
+      }
+      body.removeAttribute('__playwright_custom_elements__');
+    }
+    // Restore adopted stylesheets
+    if ('adoptedStyleSheets' in root) {
+      const adoptedSheets = [...root.adoptedStyleSheets];
+      for (const element of root.querySelectorAll('template[__playwright_style_sheet_]')) {
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(element.getAttribute('__playwright_style_sheet_'));
+        adoptedSheets.push(sheet);
+        element.remove();
+      }
+      root.adoptedStyleSheets = adoptedSheets;
+    }
+  };
+
+  const onLoad = () => {
+    window.removeEventListener('load', onLoad);
+    // Restore scroll positions after layout
+    for (const element of document.querySelectorAll('[__playwright_scroll_top_]')) {
+      element.scrollTop = +element.getAttribute('__playwright_scroll_top_');
+      element.removeAttribute('__playwright_scroll_top_');
+    }
+    for (const element of document.querySelectorAll('[__playwright_scroll_left_]')) {
+      element.scrollLeft = +element.getAttribute('__playwright_scroll_left_');
+      element.removeAttribute('__playwright_scroll_left_');
+    }
+  };
+
+  visit(document);
+  window.addEventListener('load', onLoad);
+})();
+</script>`;
 }
 
 // Helper functions
