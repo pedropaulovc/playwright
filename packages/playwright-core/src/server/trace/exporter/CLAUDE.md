@@ -8,7 +8,7 @@ Converts Playwright trace ZIP files into LLM-friendly Markdown for AI-assisted d
 
 Takes a `.zip` trace file (recorded via `trace: 'on'` in Playwright config) and outputs:
 
-- **Markdown files** - `index.md`, `timeline.md`, `errors.md`, `console.md`, `network.md`, `metadata.md`, `filmstrip.md`, `attachments.md`
+- **Markdown files** - `index.md`, `timeline.md`, `timeline-log.md`, `errors.md`, `console.md`, `network.md`, `metadata.md`, `filmstrip.md`, `attachments.md`
 - **DOM snapshots** - HTML files in `assets/snapshots/` with CSS preserved
 - **Resources** - Screenshots, attachments in `assets/resources/` and `assets/attachments/`
 
