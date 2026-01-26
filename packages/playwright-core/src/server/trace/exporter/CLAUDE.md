@@ -49,6 +49,7 @@ Events in `.trace` files (NDJSON format):
 |------------|-------------|
 | `context-options` | Browser/environment metadata |
 | `before` | Action start (creates TraceAction) |
+| `input` | Input snapshot with click point coordinates |
 | `after` | Action end (updates with result/error) |
 | `log` | Action log entry |
 | `console` | Browser console message |
@@ -64,11 +65,16 @@ Events in `.trace` files (NDJSON format):
 1. **Subtree references** - Snapshots use `[[snapshotsAgo, nodeIndex]]` to reference nodes from previous snapshots (deduplication)
 2. **Resource resolution** - URLs rewritten to `../resources/{sha1}` using `resourceOverrides` and `networkResourceMap`
 3. **CSS URL rewriting** - `url()` references in stylesheets are rewritten
+4. **Click target highlighting** - Input snapshots show the clicked element with a blue outline and red circle (same as trace viewer)
 
 Key methods:
 - `_buildOverrideMap()` - Resolves ref chains in resourceOverrides
 - `_rewriteUrl()` - Maps URLs to local SHA1 paths
 - `_rewriteCssUrls()` - Handles `url()` in CSS
+
+### Click Target Highlighting
+
+Input snapshots show click targets with blue outline (`#006ab1`) + background (`#6fa8dc7f`) and a red pointer circle (`#f44336`) at click coordinates. Warning symbol (⚠) appears if element position differs from recorded click point.
 
 ### Timeline Hierarchy
 
