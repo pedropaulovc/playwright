@@ -33,6 +33,23 @@ A hierarchical view of all actions performed during the test. Each action shows:
 
 For screenshots captured during test execution, see [Filmstrip](#filmstrip-filmstripmd).
 
+### Timeline Log (`timeline-log.md`)
+
+Detailed Playwright processing logs for each action. Shows how Playwright resolved locators, waited for elements, and performed actions. Example log entries:
+
+```
+waiting for getByRole('dialog', { name: 'Find in diff' }).getByRole('textbox', { name: 'Search term' }) (2ms)
+  locator resolved to <input value="" type="text" placeholder="Find..." aria-label="Search term"/> (1ms)
+  fill("cleanup") (0ms)
+attempting fill action (2ms)
+  waiting for element to be visible, enabled and editable (6ms)
+```
+
+Each log entry shows:
+- The operation being performed (waiting, resolving, filling, clicking)
+- The element or locator involved
+- Duration until the next log entry
+
 ### Errors (`errors.md`)
 
 Full error messages and stack traces for failed tests. Includes the exact line of code where the error occurred.

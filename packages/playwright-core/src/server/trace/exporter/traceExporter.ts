@@ -160,6 +160,7 @@ export async function exportTraceToMarkdown(
     { name: 'index.md', content: generateIndexMarkdown(context, traceFile) },
     { name: 'metadata.md', content: generateMetadataMarkdown(context) },
     { name: 'timeline.md', content: generateTimelineMarkdown(context.actions, assetMap, buildStepSnapshotMap(context.actions)) },
+    { name: 'timeline-log.md', content: generateTimelineLogMarkdown(context.actions) },
     { name: 'errors.md', content: generateErrorsMarkdown(context.errors, context.actions) },
     { name: 'console.md', content: generateConsoleMarkdown(context.events) },
     { name: 'network.md', content: generateNetworkMarkdown(context.resources) },
@@ -527,6 +528,7 @@ This folder contains a Playwright trace exported to LLM-friendly Markdown format
 
 - **index.md** - Overview with test status and error summary
 - **timeline.md** - Step-by-step action timeline with links to DOM snapshots
+- **timeline-log.md** - Detailed Playwright processing logs for each action
 - **metadata.md** - Browser and environment information
 - **errors.md** - Full error details with stack traces
 - **console.md** - Browser console output
@@ -603,6 +605,7 @@ function generateIndexMarkdown(context: TraceContext, traceFile: string): string
 
   md += `## Sections\n`;
   md += `- [Timeline](./timeline.md) - Step-by-step action timeline\n`;
+  md += `- [Timeline Log](./timeline-log.md) - Detailed Playwright processing logs\n`;
   md += `- [Metadata](./metadata.md) - Browser/environment info\n`;
   md += `- [Errors](./errors.md) - Full error details with stack traces\n`;
   md += `- [Console](./console.md) - Browser console output\n`;
@@ -881,6 +884,120 @@ function resolveSnapshotLink(snapshotName: string, assetMap: Map<string, string>
       return assetPath;
   }
   return null;
+}
+
+function generateTimelineLogMarkdown(actions: TraceAction[]): string {
+  if (actions.length === 0)
+    return `# Actions Timeline Log\n\nNo actions recorded.\n`;
+
+  // Check if this is a newer trace format with stepId linking API actions to Test actions
+  // Older traces don't have stepId on API actions, so logs can't be linked to Test actions
+  const hasStepIdLinks = actions.some(action => action.class !== 'Test' && action.stepId);
+  if (!hasStepIdLinks)
+    return `# Actions Timeline Log\n\nTimeline logs are not available for this trace format. This feature requires traces recorded with Playwright 1.49 or later.\n`;
+
+  // Only show Test-class actions (the hierarchical test steps), not API-level calls
+  const filteredActions = actions.filter(action => action.class === 'Test');
+
+  if (filteredActions.length === 0)
+    return `# Actions Timeline Log\n\nNo test actions recorded.\n`;
+
+  // Build tree structure
+  const rootItem = buildActionTree(filteredActions);
+
+  // Build a map from Test action callId to all API-level logs
+  // API actions have stepId pointing to their parent Test action
+  const actionLogsMap = new Map<string, Array<{ time: number; message: string }>>();
+  for (const action of actions) {
+    // Collect logs from API-level actions that reference Test actions via stepId
+    if (action.stepId && action.log.length > 0) {
+      const existing = actionLogsMap.get(action.stepId) || [];
+      existing.push(...action.log);
+      actionLogsMap.set(action.stepId, existing);
+    }
+    // Also collect logs directly on Test actions
+    if (action.class === 'Test' && action.log.length > 0) {
+      const existing = actionLogsMap.get(action.callId) || [];
+      existing.push(...action.log);
+      actionLogsMap.set(action.callId, existing);
+    }
+  }
+
+  // Sort logs by time for each action
+  for (const logs of actionLogsMap.values())
+    logs.sort((a, b) => a.time - b.time);
+
+  // Generate table of contents for top-level items
+  const tocEntries: string[] = [];
+  for (let i = 0; i < rootItem.children.length; i++) {
+    const item = rootItem.children[i];
+    const number = `${i + 1}`;
+    const title = getActionTitle(item.action);
+    const hasError = !!item.action.error;
+    const headingText = `${number}. ${title}${hasError ? ' - ERROR' : ''}`;
+    const anchor = headingText.toLowerCase().replace(/[^\w\s-]/g, '').replace(/ /g, '-');
+    tocEntries.push(`- [${headingText}](#${anchor})`);
+  }
+
+  let md = `# Actions Timeline Log\n\n`;
+  md += `Detailed Playwright processing logs for each action. Shows how Playwright resolved locators, waited for elements, and performed actions.\n\n`;
+  md += `Total actions: ${filteredActions.length}\n\n`;
+
+  if (tocEntries.length > 0) {
+    md += `## Contents\n\n`;
+    md += tocEntries.join('\n') + '\n\n';
+  }
+
+  // Render tree with hierarchical numbering
+  const renderItem = (item: ActionTreeItem, prefix: string, index: number, depth: number) => {
+    const action = item.action;
+    if (action.callId === 'root')
+      return;
+
+    const number = prefix ? `${prefix}.${index}` : `${index}`;
+    const hasError = !!action.error;
+    const title = getActionTitle(action);
+
+    // Use heading level based on depth (h2-h6, then stay at h6)
+    const headingLevel = Math.min(depth + 1, 6);
+    const heading = '#'.repeat(headingLevel);
+
+    md += `${heading} ${number}. ${title}${hasError ? ' - ERROR' : ''}\n\n`;
+
+    // Get logs for this action
+    const logs = actionLogsMap.get(action.callId) || [];
+
+    if (logs.length > 0) {
+      md += '```\n';
+      for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+        // Calculate duration to next log or action end
+        let duration = '';
+        if (i + 1 < logs.length) {
+          const ms = Math.max(0, Math.round(logs[i + 1].time - log.time));
+          duration = ` (${ms}ms)`;
+        } else if (action.endTime > 0) {
+          const ms = Math.max(0, Math.round(action.endTime - log.time));
+          duration = ` (${ms}ms)`;
+        }
+
+        md += `${log.message}${duration}\n`;
+      }
+      md += '```\n\n';
+    } else {
+      md += `_No log entries_\n\n`;
+    }
+
+    // Render children
+    for (let i = 0; i < item.children.length; i++)
+      renderItem(item.children[i], number, i + 1, depth + 1);
+  };
+
+  // Render all top-level items
+  for (let i = 0; i < rootItem.children.length; i++)
+    renderItem(rootItem.children[i], '', i + 1, 1);
+
+  return md;
 }
 
 function generateErrorsMarkdown(errors: TraceError[], actions: TraceAction[]): string {

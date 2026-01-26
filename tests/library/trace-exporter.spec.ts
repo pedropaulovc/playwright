@@ -93,7 +93,7 @@ test.describe('trace exporter', () => {
     await exportTraceToMarkdown(traceFile, { outputDir });
 
     // Verify all expected files exist
-    const expectedFiles = ['README.md', 'index.md', 'metadata.md', 'timeline.md', 'errors.md', 'console.md', 'network.md', 'filmstrip.md', 'attachments.md'];
+    const expectedFiles = ['README.md', 'index.md', 'metadata.md', 'timeline.md', 'timeline-log.md', 'errors.md', 'console.md', 'network.md', 'filmstrip.md', 'attachments.md'];
     for (const file of expectedFiles)
       expect(fs.existsSync(path.join(outputDir, file))).toBe(true);
 
@@ -113,7 +113,45 @@ test.describe('trace exporter', () => {
     expect(readme).toContain('# Playwright Trace Export');
     expect(readme).toContain('index.md');
     expect(readme).toContain('timeline.md');
+    expect(readme).toContain('timeline-log.md');
     expect(readme).toContain('npx serve');
+  });
+
+  test('should show not available message for timeline-log.md with old trace format', async ({}, testInfo) => {
+    // test-trace1.zip is an older trace format without stepId linking
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace1.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    const timelineLog = fs.readFileSync(path.join(outputDir, 'timeline-log.md'), 'utf-8');
+    expect(timelineLog).toContain('# Actions Timeline Log');
+    expect(timelineLog).toContain('Timeline logs are not available for this trace format');
+    expect(timelineLog).toContain('Playwright 1.49 or later');
+  });
+
+  test('should generate timeline-log.md with detailed action logs', async ({}, testInfo) => {
+    // test-trace-attachments.zip has the newer trace format with stepId linking
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace-attachments.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    const timelineLog = fs.readFileSync(path.join(outputDir, 'timeline-log.md'), 'utf-8');
+    expect(timelineLog).toContain('# Actions Timeline Log');
+    expect(timelineLog).toContain('Detailed Playwright processing logs for each action');
+    expect(timelineLog).toContain('Total actions:');
+    expect(timelineLog).toContain('## Contents');
+
+    // Verify log entries are present with click action details
+    expect(timelineLog).toContain('navigating to');
+    expect(timelineLog).toContain('waiting for locator');
+    expect(timelineLog).toContain('locator resolved to');
+    expect(timelineLog).toContain('attempting click action');
+    expect(timelineLog).toContain('waiting for element to be visible, enabled and stable');
+    expect(timelineLog).toContain('element is visible, enabled and stable');
+    expect(timelineLog).toContain('scrolling into view if needed');
+    expect(timelineLog).toContain('ms)');
   });
 
   test('should generate index.md with trace info', async ({}, testInfo) => {
