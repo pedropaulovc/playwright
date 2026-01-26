@@ -1,6 +1,6 @@
 # Trace Exporter
 
-Converts Playwright trace ZIP files into LLM-friendly Markdown for AI-assisted debugging and analysis.
+Converts Playwright trace ZIP files into LLM-friendly Markdown for AI-assisted debugging and analysis. Should provide feature parity with the original [trace-viewer.md](../../../../../docs/src/trace-viewer.md).
 
 **Docs:** [trace-exporter.md](../../../../../docs/src/trace-exporter.md)
 

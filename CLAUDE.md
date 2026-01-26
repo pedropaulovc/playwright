@@ -2,7 +2,7 @@
 
 This is a fork of the official Playwright npm package with two branches:
 
-- **feat/export-trace** - Based off upstream main, contains pristine code changes to send as a pull request to the maintainers
+- **feat/export-trace** - Based off upstream main, contains pristine code changes to send as a pull request to the maintainers for a new feature called export-trace. It is described in details in @packages/playwright-core/src/server/trace/exporter/CLAUDE.md
 - **fork/main** (default) - Based off feat/export-trace, allows freedom to change package versions and references as needed to build and publish packages
 
 ## Keeping Branches in Sync
