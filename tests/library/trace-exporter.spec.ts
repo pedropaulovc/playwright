@@ -731,4 +731,29 @@ test.describe('trace exporter', () => {
     // Verify highlightConfig is null for non-input snapshots
     expect(snapshotContent).toContain('highlightConfig = null');
   });
+
+  test('should create input snapshots with click data for timeline linking', async ({}, testInfo) => {
+    // test-trace-click.zip has a click action with input snapshot and point data
+    // Note: Timeline links only appear when traces come from the test runner (Test-class actions)
+    // This test verifies that input snapshots are created and have the correct structure
+    const traceFile = path.join(__dirname, '..', 'assets', 'test-trace-click.zip');
+    const outputDir = testInfo.outputPath('trace-export');
+    await exportTraceToMarkdown(traceFile, { outputDir });
+
+    // Verify input snapshot was created
+    const snapshotsDir = path.join(outputDir, 'assets', 'snapshots');
+    const snapshots = fs.readdirSync(snapshotsDir);
+    const inputSnapshots = snapshots.filter(s => s.startsWith('input@'));
+    expect(inputSnapshots.length).toBeGreaterThan(0);
+
+    // Verify the input snapshot has highlighting config
+    const inputContent = fs.readFileSync(path.join(snapshotsDir, inputSnapshots[0]), 'utf-8');
+    expect(inputContent).toContain('highlightConfig');
+    expect(inputContent).toContain('pointX');
+    expect(inputContent).toContain('pointY');
+
+    // Verify before/after snapshots also exist
+    expect(snapshots.some(s => s.startsWith('before@'))).toBe(true);
+    expect(snapshots.some(s => s.startsWith('after@'))).toBe(true);
+  });
 });

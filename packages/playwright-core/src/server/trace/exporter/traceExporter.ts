@@ -746,13 +746,15 @@ function getActionTitle(action: TraceAction): string {
 }
 
 // Build a map from stepId (Test action callId) to snapshots (from API actions)
-function buildStepSnapshotMap(actions: TraceAction[]): Map<string, { before?: string; after?: string }> {
-  const map = new Map<string, { before?: string; after?: string }>();
+function buildStepSnapshotMap(actions: TraceAction[]): Map<string, { before?: string; input?: string; after?: string }> {
+  const map = new Map<string, { before?: string; input?: string; after?: string }>();
   for (const action of actions) {
-    if (action.stepId && (action.beforeSnapshot || action.afterSnapshot)) {
+    if (action.stepId && (action.beforeSnapshot || action.inputSnapshot || action.afterSnapshot)) {
       const existing = map.get(action.stepId) || {};
       if (action.beforeSnapshot)
         existing.before = action.beforeSnapshot;
+      if (action.inputSnapshot)
+        existing.input = action.inputSnapshot;
       if (action.afterSnapshot)
         existing.after = action.afterSnapshot;
       map.set(action.stepId, existing);
@@ -761,7 +763,7 @@ function buildStepSnapshotMap(actions: TraceAction[]): Map<string, { before?: st
   return map;
 }
 
-function generateTimelineMarkdown(actions: TraceAction[], assetMap: Map<string, string>, stepSnapshotMap: Map<string, { before?: string; after?: string }>): string {
+function generateTimelineMarkdown(actions: TraceAction[], assetMap: Map<string, string>, stepSnapshotMap: Map<string, { before?: string; input?: string; after?: string }>): string {
   if (actions.length === 0)
     return `# Actions Timeline\n\nNo actions recorded.\n`;
 
@@ -838,13 +840,17 @@ function generateTimelineMarkdown(actions: TraceAction[], assetMap: Map<string, 
     // Snapshots - check action's own snapshots or lookup via stepSnapshotMap
     const stepSnapshots = stepSnapshotMap.get(action.callId);
     const beforeSnapshotName = action.beforeSnapshot || stepSnapshots?.before;
+    const inputSnapshotName = action.inputSnapshot || stepSnapshots?.input;
     const afterSnapshotName = action.afterSnapshot || stepSnapshots?.after;
     const beforeSnapshot = beforeSnapshotName ? resolveSnapshotLink(beforeSnapshotName, assetMap) : null;
+    const inputSnapshot = inputSnapshotName ? resolveSnapshotLink(inputSnapshotName, assetMap) : null;
     const afterSnapshot = afterSnapshotName ? resolveSnapshotLink(afterSnapshotName, assetMap) : null;
-    if (beforeSnapshot || afterSnapshot) {
+    if (beforeSnapshot || inputSnapshot || afterSnapshot) {
       const links = [];
       if (beforeSnapshot)
         links.push(`[before](${beforeSnapshot})`);
+      if (inputSnapshot)
+        links.push(`[input](${inputSnapshot})`);
       if (afterSnapshot)
         links.push(`[after](${afterSnapshot})`);
       md += `- **Snapshots:** ${links.join(' | ')}\n`;
