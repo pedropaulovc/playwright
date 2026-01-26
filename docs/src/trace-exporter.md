@@ -80,9 +80,9 @@ Test environment information:
 
 ### DOM Snapshots (`assets/snapshots/`)
 
-Complete HTML snapshots of the page at each action, with CSS styling preserved. Three snapshot types are captured:
+Complete HTML snapshots of the page at each action, with CSS styling preserved. Snapshots render identically to what's shown in the [Trace Viewer](./trace-viewer.md), including click target highlighting (blue outline on the target element and red circle at click coordinates). Three snapshot types are captured:
 - **Before** - Page state when action is called
-- **Action** - Page state at the moment of input (shows exactly where Playwright clicked)
+- **Input** - Page state at the moment of input with click target highlighting
 - **After** - Page state after the action completes
 
 ### Filmstrip (`filmstrip.md`)
