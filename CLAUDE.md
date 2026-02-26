@@ -48,7 +48,21 @@ npx playwright test tests/library/trace-exporter.spec.ts
 
 ## Publishing
 
-Trigger the `sync-upstream.yml` workflow in GitHub to publish new versions of `@pedropaulovc/playwright-*`.
+**Important:** Before publishing, always bump the version in all `package.json` files. The version string `1.59.0-next.N` appears in 15 `package.json` files (27 occurrences). Use a global find-and-replace to increment `N`. The published version must not already exist on npm.
+
+```bash
+# Example: bump from next.9 to next.10
+find packages -name package.json -exec sed -i 's/1\.59\.0-next\.9/1.59.0-next.10/g' {} \;
+sed -i 's/1\.59\.0-next\.9/1.59.0-next.10/g' package.json
+git add -A && git commit -m "chore: bump version to 1.59.0-next.10"
+git push origin fork/main --force-with-lease
+```
+
+Then trigger the `sync-upstream.yml` workflow in GitHub to publish new versions of `@pedropaulovc/playwright-*`.
+
+```bash
+gh workflow run sync-upstream.yml --ref fork/main -f force_publish=true -R pedropaulovc/playwright
+```
 
 ## E2E Validation
 
